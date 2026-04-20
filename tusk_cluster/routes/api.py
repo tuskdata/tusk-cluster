@@ -1,10 +1,14 @@
 """Cluster plugin API routes"""
 
 import asyncio
+import os
+import secrets
 import sqlite3
 import subprocess
-from datetime import datetime
+import threading
+from datetime import datetime, timezone
 from litestar import Controller, Request, get, post, delete
+from litestar.exceptions import NotAuthorizedException
 from litestar.params import Body
 from litestar.response import Template
 
@@ -13,6 +17,75 @@ from tusk.studio.htmx import is_htmx
 from tusk.plugins.storage import get_plugin_db_path
 
 log = get_logger("cluster_api")
+
+# Thread lock for the in-memory _cluster_state dict — workers can post
+# heartbeats concurrently with user requests reading status.
+_state_lock = threading.Lock()
+
+
+def _cluster_secret() -> str | None:
+    """Shared secret required for worker-to-scheduler calls.
+
+    When `TUSK_CLUSTER_SECRET` is unset, worker endpoints accept anyone
+    (single-node/dev default). Set it in production to lock down registration.
+    """
+    return os.environ.get("TUSK_CLUSTER_SECRET") or None
+
+
+def _flight_location(host: str, port: int) -> str:
+    """Build Arrow Flight location, honoring TUSK_CLUSTER_TLS env var.
+
+    Set `TUSK_CLUSTER_TLS=1` to dial workers/scheduler over grpc+tls.
+    """
+    scheme = "grpc+tls" if os.environ.get("TUSK_CLUSTER_TLS", "").lower() in ("1", "true", "yes") else "grpc"
+    return f"{scheme}://{host}:{port}"
+
+
+def _check_user_auth(connection: Request, _: object) -> None:
+    """Guard for user-facing cluster endpoints. Mirrors the core admin guard:
+    multi-user requires admin session; single-user requires loopback."""
+    try:
+        from tusk.core.config import get_config
+    except ImportError:
+        return
+
+    config = get_config()
+
+    if config.auth_mode != "multi":
+        client = getattr(connection, "client", None)
+        host = getattr(client, "host", None) if client else None
+        if host and (host in {"127.0.0.1", "::1", "localhost"} or host.startswith("127.")):
+            return
+        raise NotAuthorizedException(
+            "Cluster admin endpoints require multi-user auth for non-loopback access"
+        )
+
+    try:
+        from tusk.core.auth import get_session, get_user_by_id
+    except ImportError:
+        return
+    session_id = connection.cookies.get("tusk_session")
+    if not session_id:
+        raise NotAuthorizedException("Authentication required")
+    session = get_session(session_id)
+    if not session:
+        raise NotAuthorizedException("Invalid or expired session")
+    user = get_user_by_id(session.user_id)
+    if not user or not user.is_active or not user.is_admin:
+        raise NotAuthorizedException("Admin access required")
+
+
+def _check_worker_auth(connection: Request, _: object) -> None:
+    """Guard for worker-facing endpoints (register, heartbeat, unregister).
+
+    Requires `X-Cluster-Secret` header when TUSK_CLUSTER_SECRET is set.
+    """
+    expected = _cluster_secret()
+    if not expected:
+        return
+    presented = connection.headers.get("x-cluster-secret") or connection.headers.get("X-Cluster-Secret")
+    if not presented or not secrets.compare_digest(presented, expected):
+        raise NotAuthorizedException("Invalid cluster secret")
 
 
 def _get_jobs_db():
@@ -83,16 +156,34 @@ _local_cluster = {
 }
 
 
+def _user_or_worker_auth(connection: Request, op: object) -> None:
+    """Accept either a valid user session (admin) or a valid worker secret.
+
+    Worker endpoints pass through this too, since a presented valid secret
+    satisfies the check. If `TUSK_CLUSTER_SECRET` is unset, only user auth is
+    enforced (dev default).
+    """
+    expected = _cluster_secret()
+    if expected:
+        presented = (connection.headers.get("x-cluster-secret")
+                     or connection.headers.get("X-Cluster-Secret"))
+        if presented and secrets.compare_digest(presented, expected):
+            return
+    _check_user_auth(connection, op)
+
+
 class ClusterAPIController(Controller):
     """API for Cluster management"""
 
     path = "/api/cluster"
+    guards = [_user_or_worker_auth]
 
     @get("/status")
     async def get_status(self) -> dict:
         """Get overall cluster status"""
-        workers = list(_cluster_state["workers"].values())
-        jobs = list(_cluster_state["jobs"].values())
+        with _state_lock:
+            workers = list(_cluster_state["workers"].values())
+            jobs = list(_cluster_state["jobs"].values())
 
         online_workers = sum(1 for w in workers if w.get("status") != "offline")
         active_jobs = sum(1 for j in jobs if j.get("status") == "running")
@@ -129,23 +220,38 @@ class ClusterAPIController(Controller):
 
     @post("/workers/register")
     async def register_worker(self, data: dict = Body()) -> dict:
-        """Register a worker (called by workers)"""
-        worker_id = data.get("id")
-        if not worker_id:
-            return {"error": "Worker ID required"}
+        """Register a worker (called by workers).
 
-        _cluster_state["workers"][worker_id] = {
-            "id": worker_id,
-            "address": data.get("address", "localhost"),
-            "port": data.get("port", 8815),
-            "status": "idle",
-            "cpu_percent": 0,
-            "memory_mb": 0,
-            "memory_percent": 0,
-            "last_heartbeat": datetime.now().isoformat(),
-            "jobs_completed": 0,
-            "bytes_processed": 0,
-        }
+        Requires `X-Cluster-Secret` header if TUSK_CLUSTER_SECRET is set;
+        also validates the required fields.
+        """
+        worker_id = data.get("id")
+        address = data.get("address")
+        port = data.get("port")
+        if not worker_id or not isinstance(worker_id, str):
+            return {"error": "Worker ID required (string)"}
+        if not address or not isinstance(address, str):
+            return {"error": "address required"}
+        try:
+            port = int(port)
+        except (TypeError, ValueError):
+            return {"error": "port must be an integer"}
+        if port < 1 or port > 65535:
+            return {"error": "port out of range"}
+
+        with _state_lock:
+            _cluster_state["workers"][worker_id] = {
+                "id": worker_id,
+                "address": address,
+                "port": port,
+                "status": "idle",
+                "cpu_percent": 0,
+                "memory_mb": 0,
+                "memory_percent": 0,
+                "last_heartbeat": datetime.now(timezone.utc).isoformat(),
+                "jobs_completed": 0,
+                "bytes_processed": 0,
+            }
 
         log.info("Worker registered via API", worker_id=worker_id)
         return {"registered": True, "worker_id": worker_id}
@@ -153,15 +259,15 @@ class ClusterAPIController(Controller):
     @post("/workers/{worker_id:str}/heartbeat")
     async def worker_heartbeat(self, worker_id: str, data: dict = Body()) -> dict:
         """Update worker metrics (called by workers)"""
-        if worker_id not in _cluster_state["workers"]:
-            return {"error": "Worker not found"}
-
-        worker = _cluster_state["workers"][worker_id]
-        worker["cpu_percent"] = data.get("cpu", 0)
-        worker["memory_mb"] = data.get("memory", 0)
-        worker["memory_percent"] = data.get("memory_percent", 0)
-        worker["last_heartbeat"] = datetime.now().isoformat()
-        worker["status"] = data.get("status", "idle")
+        with _state_lock:
+            if worker_id not in _cluster_state["workers"]:
+                return {"error": "Worker not found"}
+            worker = _cluster_state["workers"][worker_id]
+            worker["cpu_percent"] = data.get("cpu", 0)
+            worker["memory_mb"] = data.get("memory", 0)
+            worker["memory_percent"] = data.get("memory_percent", 0)
+            worker["last_heartbeat"] = datetime.now(timezone.utc).isoformat()
+            worker["status"] = data.get("status", "idle")
 
         return {"ok": True}
 
@@ -186,7 +292,7 @@ class ClusterAPIController(Controller):
                 host = _cluster_config["scheduler_host"]
                 port = _cluster_config["scheduler_port"]
 
-                location = f"grpc://{host}:{port}"
+                location = _flight_location(host, port)
                 client = flight.connect(location)
 
                 try:
@@ -227,7 +333,7 @@ class ClusterAPIController(Controller):
                 host = _cluster_config["scheduler_host"]
                 port = _cluster_config["scheduler_port"]
 
-                location = f"grpc://{host}:{port}"
+                location = _flight_location(host, port)
                 client = flight.connect(location)
 
                 try:
@@ -259,7 +365,7 @@ class ClusterAPIController(Controller):
 
             host = _cluster_config["scheduler_host"]
             port = _cluster_config["scheduler_port"]
-            location = f"grpc://{host}:{port}"
+            location = _flight_location(host, port)
             client = flight.connect(location)
 
             try:
@@ -302,7 +408,7 @@ class ClusterAPIController(Controller):
             host = _cluster_config["scheduler_host"]
             port = _cluster_config["scheduler_port"]
 
-            location = f"grpc://{host}:{port}"
+            location = _flight_location(host, port)
             client = flight.connect(location)
 
             try:
@@ -354,7 +460,7 @@ class ClusterAPIController(Controller):
 
                 host = _cluster_config["scheduler_host"]
                 port = _cluster_config["scheduler_port"]
-                location = f"grpc://{host}:{port}"
+                location = _flight_location(host, port)
                 client = flight.connect(location)
 
                 try:
@@ -433,7 +539,7 @@ class ClusterAPIController(Controller):
         try:
             import pyarrow.flight as flight
 
-            location = f"grpc://{host}:{port}"
+            location = _flight_location(host, port)
             client = flight.connect(location)
 
             try:
@@ -493,7 +599,7 @@ class ClusterAPIController(Controller):
             import pyarrow.flight as flight
             import json
 
-            location = f"grpc://{host}:{port}"
+            location = _flight_location(host, port)
             client = flight.connect(location)
 
             try:
@@ -584,7 +690,7 @@ class ClusterAPIController(Controller):
 
                 try:
                     import pyarrow.flight as flight
-                    client = flight.connect("grpc://localhost:8814")
+                    client = flight.connect(_flight_location("localhost", 8814))
                     list(client.do_action(flight.Action("list_workers", b"")))
                     client.close()
                     connected = True
