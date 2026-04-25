@@ -203,7 +203,9 @@ class ClusterAPIController(Controller):
     async def list_workers(self) -> dict:
         """List all workers with metrics"""
         workers = []
-        for worker_id, worker in _cluster_state["workers"].items():
+        with _state_lock:
+            snapshot = list(_cluster_state["workers"].items())
+        for worker_id, worker in snapshot:
             workers.append({
                 "id": worker_id,
                 "address": worker.get("address", "unknown"),
@@ -274,8 +276,9 @@ class ClusterAPIController(Controller):
     @post("/workers/{worker_id:str}/unregister")
     async def unregister_worker(self, worker_id: str) -> dict:
         """Unregister a worker"""
-        if worker_id in _cluster_state["workers"]:
-            del _cluster_state["workers"][worker_id]
+        with _state_lock:
+            removed = _cluster_state["workers"].pop(worker_id, None)
+        if removed is not None:
             log.info("Worker unregistered via API", worker_id=worker_id)
             return {"unregistered": True}
         return {"error": "Worker not found"}

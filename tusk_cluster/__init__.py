@@ -20,7 +20,7 @@ Usage:
 from pathlib import Path
 from tusk.plugins.base import TuskPlugin
 
-__version__ = "0.1.0"
+__version__ = "0.2.1"
 
 
 class ClusterPlugin(TuskPlugin):
@@ -105,26 +105,17 @@ class ClusterPlugin(TuskPlugin):
 
     def _cli_scheduler(self, args: list[str]) -> int:
         """Start the cluster scheduler"""
+        import argparse
         from tusk_cluster.scheduler import Scheduler
 
-        host = "0.0.0.0"
-        port = 8814
+        parser = argparse.ArgumentParser(prog="tusk cluster-scheduler", description="Start the cluster scheduler")
+        parser.add_argument("--host", default="0.0.0.0", help="Bind address (default: 0.0.0.0)")
+        parser.add_argument("--port", "-p", type=int, default=8814, help="Listen port (default: 8814)")
+        opts = parser.parse_args(args)
 
-        # Parse arguments
-        i = 0
-        while i < len(args):
-            if args[i] == "--host" and i + 1 < len(args):
-                host = args[i + 1]
-                i += 2
-            elif args[i] in ("--port", "-p") and i + 1 < len(args):
-                port = int(args[i + 1])
-                i += 2
-            else:
-                i += 1
+        print(f"Starting Tusk Cluster Scheduler on {opts.host}:{opts.port}")
 
-        print(f"Starting Tusk Cluster Scheduler on {host}:{port}")
-
-        scheduler = Scheduler(host=host, port=port)
+        scheduler = Scheduler(host=opts.host, port=opts.port)
         try:
             scheduler.serve()
         except KeyboardInterrupt:
@@ -135,47 +126,29 @@ class ClusterPlugin(TuskPlugin):
 
     def _cli_worker(self, args: list[str]) -> int:
         """Start a cluster worker"""
+        import argparse
         from tusk_cluster.worker import Worker
 
-        scheduler_host = "localhost"
-        scheduler_port = 8814
-        host = "0.0.0.0"
-        port = 8815
-        tusk_url = "http://localhost:8080"
+        parser = argparse.ArgumentParser(prog="tusk cluster-worker", description="Start a cluster worker")
+        parser.add_argument("--scheduler", default="localhost:8814", help="Scheduler address host:port (default: localhost:8814)")
+        parser.add_argument("--host", default="0.0.0.0", help="Bind address (default: 0.0.0.0)")
+        parser.add_argument("--port", "-p", type=int, default=8815, help="Listen port (default: 8815)")
+        parser.add_argument("--tusk-url", default="http://localhost:8080", help="Tusk Studio URL for catalog (default: http://localhost:8080)")
+        opts = parser.parse_args(args)
 
-        # Parse arguments
-        i = 0
-        while i < len(args):
-            if args[i] == "--scheduler" and i + 1 < len(args):
-                addr = args[i + 1]
-                if ":" in addr:
-                    scheduler_host, scheduler_port = addr.split(":")
-                    scheduler_port = int(scheduler_port)
-                else:
-                    scheduler_host = addr
-                i += 2
-            elif args[i] == "--host" and i + 1 < len(args):
-                host = args[i + 1]
-                i += 2
-            elif args[i] in ("--port", "-p") and i + 1 < len(args):
-                port = int(args[i + 1])
-                i += 2
-            elif args[i] == "--tusk-url" and i + 1 < len(args):
-                tusk_url = args[i + 1]
-                i += 2
-            else:
-                i += 1
+        scheduler_host, _, scheduler_port = opts.scheduler.partition(":")
+        scheduler_port = int(scheduler_port) if scheduler_port else 8814
 
-        print(f"Starting Tusk Cluster Worker on {host}:{port}")
+        print(f"Starting Tusk Cluster Worker on {opts.host}:{opts.port}")
         print(f"Connecting to scheduler at {scheduler_host}:{scheduler_port}")
-        print(f"Loading catalog from {tusk_url}")
+        print(f"Loading catalog from {opts.tusk_url}")
 
         worker = Worker(
             scheduler_host=scheduler_host,
             scheduler_port=scheduler_port,
-            host=host,
-            port=port,
-            tusk_url=tusk_url
+            host=opts.host,
+            port=opts.port,
+            tusk_url=opts.tusk_url,
         )
         try:
             worker.serve()
@@ -187,31 +160,20 @@ class ClusterPlugin(TuskPlugin):
 
     def _cli_dev(self, args: list[str]) -> int:
         """Start local cluster with scheduler + workers for development"""
+        import argparse
         import subprocess
         import sys
         import time
-        import signal
-        import os
 
-        num_workers = 3
-        tusk_url = "http://localhost:8080"
-
-        # Parse arguments
-        i = 0
-        while i < len(args):
-            if args[i] in ("--workers", "-w") and i + 1 < len(args):
-                num_workers = int(args[i + 1])
-                i += 2
-            elif args[i] == "--tusk-url" and i + 1 < len(args):
-                tusk_url = args[i + 1]
-                i += 2
-            else:
-                i += 1
+        parser = argparse.ArgumentParser(prog="tusk cluster-dev", description="Start local dev cluster")
+        parser.add_argument("--workers", "-w", type=int, default=3, help="Number of workers (default: 3)")
+        parser.add_argument("--tusk-url", default="http://localhost:8080", help="Tusk Studio URL (default: http://localhost:8080)")
+        opts = parser.parse_args(args)
 
         print("Starting Tusk Cluster (dev mode)")
         print(f"  Scheduler: localhost:8814")
-        print(f"  Workers: {num_workers}")
-        print(f"  Tusk URL: {tusk_url}")
+        print(f"  Workers: {opts.workers}")
+        print(f"  Tusk URL: {opts.tusk_url}")
 
         python = sys.executable
         processes = []
@@ -231,14 +193,14 @@ class ClusterPlugin(TuskPlugin):
             return 1
 
         # Start workers as subprocesses
-        for i in range(num_workers):
+        for i in range(opts.workers):
             worker_port = 8815 + i
             p = subprocess.Popen(
                 [
                     python, "-m", "tusk.cli", "cluster-worker",
                     "--scheduler", "localhost:8814",
                     "--port", str(worker_port),
-                    "--tusk-url", tusk_url,
+                    "--tusk-url", opts.tusk_url,
                 ],
                 start_new_session=False,
             )
@@ -302,7 +264,10 @@ class ClusterPlugin(TuskPlugin):
             completed_at TEXT,
             worker_id TEXT,
             rows_processed INTEGER DEFAULT 0,
-            error TEXT
+            error TEXT,
+            retry_count INTEGER DEFAULT 0,
+            max_retries INTEGER DEFAULT 3,
+            next_retry_at TEXT
         );
 
         CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
