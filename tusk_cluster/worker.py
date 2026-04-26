@@ -1,5 +1,7 @@
 """Worker for distributed query execution"""
 
+import asyncio
+import os
 import re
 import socket
 import time
@@ -15,6 +17,15 @@ from datafusion import SessionContext
 from tusk.core.logging import get_logger
 
 log = get_logger("worker")
+
+_CLUSTER_TOKEN = os.environ.get("TUSK_CLUSTER_TOKEN", "")
+
+
+def _prefix_token(data: str) -> str:
+    """Prefix cluster token to data if configured."""
+    if _CLUSTER_TOKEN:
+        return f"TOKEN:{_CLUSTER_TOKEN}:{data}"
+    return data
 
 
 class FlightWorkerServer(flight.FlightServerBase):
@@ -105,7 +116,7 @@ class Worker:
 
             action = flight.Action(
                 "register",
-                f"{self.id}:{register_host}:{self.port}".encode()
+                _prefix_token(f"{self.id}:{register_host}:{self.port}").encode()
             )
             list(client.do_action(action))
 
@@ -124,7 +135,7 @@ class Worker:
             location = flight.Location.for_grpc_tcp(self.scheduler_host, self.scheduler_port)
             client = flight.FlightClient(location)
 
-            action = flight.Action("unregister", self.id.encode())
+            action = flight.Action("unregister", _prefix_token(self.id).encode())
             list(client.do_action(action))
 
             log.info("Unregistered from scheduler", worker_id=self.id)
@@ -208,7 +219,7 @@ class Worker:
 
                 action = flight.Action(
                     "heartbeat",
-                    f"{self.id}:{cpu}:{memory}:{memory_percent}".encode()
+                    _prefix_token(f"{self.id}:{cpu}:{memory}:{memory_percent}").encode()
                 )
                 list(client.do_action(action))
 

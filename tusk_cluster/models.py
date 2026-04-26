@@ -25,6 +25,9 @@ class Job(msgspec.Struct):
     error: str | None = None
     worker_id: str | None = None
     result: Any = None
+    retry_count: int = 0
+    max_retries: int = 3
+    next_retry_at: datetime | None = None
 
 
 class WorkerInfo(msgspec.Struct):
@@ -39,6 +42,7 @@ class WorkerInfo(msgspec.Struct):
     last_heartbeat: datetime = msgspec.field(default_factory=datetime.now)
     jobs_completed: int = 0
     bytes_processed: int = 0
+    active_jobs: int = 0
 
 
 class ClusterStatus(msgspec.Struct):
