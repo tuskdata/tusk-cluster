@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tusk-cluster"
-version = "0.2.2"
+version = "0.2.3"
 description = "Cluster mode plugin for Tusk - distributed queries with DataFusion"
 readme = "README.md"
 license = "MIT"

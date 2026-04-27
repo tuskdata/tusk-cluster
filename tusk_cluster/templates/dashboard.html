@@ -1,196 +1,161 @@
 {% extends "base.html" %}
 
-{% block title %}Tusk Cluster - Distributed Query Execution{% endblock %}
-
-{% block styles %}
-<style>/* Styles in /static/styles.css */</style>
-{% endblock %}
+{% block title %}Tusk Cluster · Distributed Query Execution{% endblock %}
 
 {% block header_actions %}
-<button onclick="refreshCluster()" class="px-3 py-1.5 bg-[#21262d] hover:bg-[#30363d] rounded text-sm flex items-center gap-2">
-    <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-    Refresh
+<button onclick="refreshCluster()" class="btn btn-sm">
+    <i data-lucide="refresh-cw"></i>Refresh
 </button>
 {% endblock %}
 
 {% block content %}
-<!-- Left Sidebar - Cluster Config -->
-<aside class="w-64 sidebar flex flex-col flex-shrink-0 overflow-hidden">
-    <!-- Scheduler Connection -->
-    <div class="p-3 border-b border-[#30363d]">
-        <div class="flex items-center justify-between mb-3">
-            <span class="text-xs font-semibold text-[#8b949e] uppercase tracking-wide">Scheduler</span>
-            <span id="scheduler-status" class="w-2 h-2 rounded-full bg-gray-600"></span>
-        </div>
+<div class="studio-shell w-full">
+    <aside class="r-sidebar relative">
+        <div style="display:flex;flex-direction:column;flex:1;overflow:hidden">
 
-        <!-- Connection Form -->
-        <div class="space-y-2 mb-3">
-            <div class="flex gap-2">
-                <input id="scheduler-host" type="text" value="localhost" placeholder="Host"
-                    class="flex-1 bg-[#0d1117] border border-[#30363d] rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500">
-                <input id="scheduler-port" type="number" value="8814" placeholder="Port"
-                    class="w-20 bg-[#0d1117] border border-[#30363d] rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500">
-            </div>
-            <div class="flex gap-2">
-                <button id="btn-connect" onclick="connectScheduler()" class="flex-1 bg-[#238636] hover:bg-[#2ea043] px-3 py-1.5 rounded text-sm font-medium flex items-center justify-center gap-1.5">
-                    <i data-lucide="plug" class="w-3.5 h-3.5"></i>
-                    Connect
-                </button>
-                <button id="btn-disconnect" onclick="disconnectScheduler()" class="flex-1 bg-[#da3633] hover:bg-[#f85149] px-3 py-1.5 rounded text-sm font-medium flex items-center justify-center gap-1.5 hidden">
-                    <i data-lucide="unplug" class="w-3.5 h-3.5"></i>
-                    Disconnect
-                </button>
-            </div>
-        </div>
-
-        <div id="scheduler-info" class="text-sm text-[#8b949e]">
-            Not connected
-        </div>
-    </div>
-
-    <!-- Workers List -->
-    <div class="flex-1 p-3 overflow-auto">
-        <div class="flex items-center justify-between mb-3">
-            <span class="text-xs font-semibold text-[#8b949e] uppercase tracking-wide">Workers</span>
-            <span id="workers-count" class="text-xs text-[#8b949e]">0/0</span>
-        </div>
-        <div id="workers-list" class="space-y-2">
-            <div class="text-[#8b949e] text-sm py-2">No workers connected</div>
-        </div>
-    </div>
-
-    <!-- Local Cluster - Quick Start -->
-    <div class="p-3 border-t-2 border-indigo-500/50 bg-indigo-500/5">
-        <div class="flex items-center justify-between mb-3">
-            <span class="text-xs font-semibold text-indigo-400 uppercase tracking-wide flex items-center gap-1.5">
-                <i data-lucide="zap" class="w-3.5 h-3.5"></i>
-                Quick Start
-            </span>
-            <span id="local-status" class="text-xs text-[#8b949e]">Stopped</span>
-        </div>
-        <p class="text-xs text-[#8b949e] mb-3">Start a local cluster for testing</p>
-        <div class="flex gap-2 mb-3">
-            <select id="local-workers" class="flex-1 bg-[#0d1117] border border-[#30363d] rounded px-2 py-1.5 text-sm">
-                <option value="1">1 worker</option>
-                <option value="2">2 workers</option>
-                <option value="3" selected>3 workers</option>
-                <option value="4">4 workers</option>
-            </select>
-        </div>
-        <div class="flex gap-2">
-            <button id="btn-start-local" onclick="startLocalCluster()" class="flex-1 bg-[#238636] hover:bg-[#2ea043] px-3 py-2 rounded text-sm font-medium flex items-center justify-center gap-1.5">
-                <i data-lucide="play" class="w-4 h-4"></i>
-                Start Local Cluster
-            </button>
-            <button id="btn-stop-local" onclick="stopLocalCluster()" class="flex-1 bg-[#da3633] hover:bg-[#f85149] px-3 py-2 rounded text-sm font-medium flex items-center justify-center gap-1.5 hidden">
-                <i data-lucide="square" class="w-4 h-4"></i>
-                Stop
-            </button>
-        </div>
-    </div>
-
-    <!-- Shared Pipelines -->
-    <div class="p-3 border-t border-[#30363d]">
-        <div class="flex items-center justify-between mb-2">
-            <span class="text-xs font-semibold text-[#8b949e] uppercase tracking-wide">Pipelines</span>
-            <button onclick="refreshCatalog()" class="p-1 hover:bg-[#21262d] rounded text-[#8b949e] hover:text-white" title="Refresh">
-                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-            </button>
-        </div>
-        <div id="catalog-list" class="space-y-1 max-h-48 overflow-auto">
-            <div class="text-[#8b949e] text-xs py-1">No shared pipelines</div>
-        </div>
-        <p class="text-xs text-[#484f58] mt-2">Share pipelines from Data page to run on cluster</p>
-    </div>
-
-    <!-- CLI Reference -->
-    <div class="p-3 border-t border-[#30363d]">
-        <div class="text-xs text-[#8b949e] mb-2">
-            <strong>CLI Commands:</strong>
-        </div>
-        <div class="space-y-1 text-xs font-mono text-[#8b949e]">
-            <div><code class="bg-[#0d1117] px-1 rounded">tusk cluster-dev</code></div>
-            <div><code class="bg-[#0d1117] px-1 rounded">tusk cluster-scheduler</code></div>
-            <div><code class="bg-[#0d1117] px-1 rounded">tusk cluster-worker</code></div>
-        </div>
-    </div>
-</aside>
-
-<!-- Main Panel - Jobs -->
-<main class="flex-1 flex flex-col overflow-hidden">
-    <!-- Stats Header -->
-    <div class="px-4 py-3 border-b border-[#30363d] bg-[#161b22]">
-        <div class="flex items-center gap-6">
-            <div class="flex items-center gap-2">
-                <div class="p-2 bg-[#238636]/20 rounded-lg">
-                    <i data-lucide="server" class="w-5 h-5 text-[#3fb950]"></i>
+            <div class="side-section">
+                <div class="side-label" style="display:flex;justify-content:space-between;align-items:center">
+                    <span>Scheduler</span>
+                    <span id="scheduler-status" class="dot gray"></span>
                 </div>
-                <div>
-                    <div id="stat-workers" class="text-xl font-bold">0</div>
-                    <div class="text-xs text-[#8b949e]">Workers Online</div>
+                <div style="padding:0 8px;display:flex;flex-direction:column;gap:6px;margin-top:4px">
+                    <div style="display:flex;gap:6px">
+                        <input id="scheduler-host" type="text" value="localhost" placeholder="Host" style="flex:1">
+                        <input id="scheduler-port" type="number" value="8814" placeholder="Port" style="width:84px">
+                    </div>
+                    <button id="btn-connect" onclick="connectScheduler()"
+                            class="btn btn-sm" style="background:var(--green);color:#fff;border-color:var(--green);justify-content:center">
+                        <i data-lucide="plug"></i>Connect
+                    </button>
+                    <button id="btn-disconnect" onclick="disconnectScheduler()" class="btn btn-sm hidden"
+                            style="background:var(--red);color:#fff;border-color:var(--red);justify-content:center">
+                        <i data-lucide="unplug"></i>Disconnect
+                    </button>
+                    <div id="scheduler-info" style="font-size:12px;color:var(--fg-3)">Not connected</div>
                 </div>
             </div>
-            <div class="w-px h-10 bg-[#30363d]"></div>
-            <div class="flex items-center gap-2">
-                <div class="p-2 bg-[#58a6ff]/20 rounded-lg">
-                    <i data-lucide="activity" class="w-5 h-5 text-[#58a6ff]"></i>
+
+            <div class="side-section" style="flex:1;overflow:auto;min-height:0">
+                <div class="side-label" style="display:flex;justify-content:space-between;align-items:center">
+                    <span>Workers</span>
+                    <span id="workers-count" style="font-size:11px;color:var(--fg-4);font-family:var(--font-mono)">0/0</span>
                 </div>
-                <div>
-                    <div id="stat-active" class="text-xl font-bold">0</div>
-                    <div class="text-xs text-[#8b949e]">Active Jobs</div>
-                </div>
-            </div>
-            <div class="w-px h-10 bg-[#30363d]"></div>
-            <div class="flex items-center gap-2">
-                <div class="p-2 bg-[#a371f7]/20 rounded-lg">
-                    <i data-lucide="check-circle" class="w-5 h-5 text-[#a371f7]"></i>
-                </div>
-                <div>
-                    <div id="stat-completed" class="text-xl font-bold">0</div>
-                    <div class="text-xs text-[#8b949e]">Completed</div>
+                <div id="workers-list" style="padding:0 4px;display:flex;flex-direction:column;gap:6px">
+                    <div class="side-empty">No workers connected</div>
                 </div>
             </div>
-            <div class="w-px h-10 bg-[#30363d]"></div>
-            <div class="flex items-center gap-2">
-                <div class="p-2 bg-[#f0883e]/20 rounded-lg">
-                    <i data-lucide="hard-drive" class="w-5 h-5 text-[#f0883e]"></i>
+
+            <div class="side-section" style="border-top:2px solid var(--brand-tint);background:var(--brand-soft)">
+                <div class="side-label" style="display:flex;justify-content:space-between;align-items:center">
+                    <span style="color:var(--brand);display:flex;align-items:center;gap:6px"><i data-lucide="zap" style="width:11px;height:11px"></i>Quick start</span>
+                    <span id="local-status" style="font-size:11px;color:var(--fg-3)">Stopped</span>
                 </div>
-                <div>
-                    <div id="stat-bytes" class="text-xl font-bold">0 B</div>
-                    <div class="text-xs text-[#8b949e]">Processed</div>
+                <div style="padding:0 8px;display:flex;flex-direction:column;gap:8px;margin-top:6px">
+                    <p style="font-size:11.5px;color:var(--fg-3)">Start a local cluster for testing</p>
+                    <select id="local-workers">
+                        <option value="1">1 worker</option>
+                        <option value="2">2 workers</option>
+                        <option value="3" selected>3 workers</option>
+                        <option value="4">4 workers</option>
+                    </select>
+                    <button id="btn-start-local" onclick="startLocalCluster()"
+                            class="btn btn-sm" style="background:var(--green);color:#fff;border-color:var(--green);justify-content:center">
+                        <i data-lucide="play"></i>Start local cluster
+                    </button>
+                    <button id="btn-stop-local" onclick="stopLocalCluster()" class="btn btn-sm hidden"
+                            style="background:var(--red);color:#fff;border-color:var(--red);justify-content:center">
+                        <i data-lucide="square"></i>Stop
+                    </button>
+                </div>
+            </div>
+
+            <div class="side-section" style="border-top:1px solid var(--border)">
+                <div class="side-label" style="display:flex;justify-content:space-between;align-items:center">
+                    <span>Pipelines</span>
+                    <button onclick="refreshCatalog()" class="icon-btn icon-mini" title="Refresh">
+                        <i data-lucide="refresh-cw"></i>
+                    </button>
+                </div>
+                <div id="catalog-list" style="padding:0 4px;display:flex;flex-direction:column;gap:4px;max-height:192px;overflow:auto">
+                    <div class="side-empty">No shared pipelines</div>
+                </div>
+                <p style="padding:6px 10px 0;font-size:11px;color:var(--fg-4)">Share pipelines from Data page to run on cluster</p>
+            </div>
+
+            <div class="side-section" style="border-top:1px solid var(--border)">
+                <div class="side-label"><span>CLI</span></div>
+                <div style="padding:0 10px;display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:var(--fg-3);font-family:var(--font-mono)">
+                    <code style="background:var(--surface-2);padding:2px 6px;border-radius:4px">tusk cluster-dev</code>
+                    <code style="background:var(--surface-2);padding:2px 6px;border-radius:4px">tusk cluster-scheduler</code>
+                    <code style="background:var(--surface-2);padding:2px 6px;border-radius:4px">tusk cluster-worker</code>
                 </div>
             </div>
         </div>
-    </div>
+    </aside>
 
-    <!-- Submit Job -->
-    <div class="px-4 py-3 border-b border-[#30363d]">
-        <div class="flex gap-3">
-            <input id="job-sql" placeholder="Enter SQL query to execute on cluster..." class="flex-1 bg-[#0d1117] border border-[#30363d] rounded-lg px-4 py-2 text-sm font-mono focus:outline-none focus:border-indigo-500">
-            <button onclick="submitJob()" class="bg-[#238636] hover:bg-[#2ea043] px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
-                <i data-lucide="send" class="w-4 h-4"></i>
-                Submit Job
-            </button>
-        </div>
-    </div>
-
-    <!-- Active Jobs -->
-    <div class="flex-1 overflow-auto p-4">
-        <div class="mb-4">
-            <h3 class="text-sm font-semibold text-[#8b949e] uppercase tracking-wide mb-3">Active Jobs</h3>
-            <div id="active-jobs" class="space-y-3">
-                <div class="text-[#8b949e] text-sm">No active jobs</div>
+    <main class="dash-page" style="flex:1;overflow:auto">
+        <!-- Stats grid (mockup .dash-card.span-3 pattern) -->
+        <div class="dash-grid" style="margin-bottom:18px">
+            <div class="dash-card span-3">
+                <div class="dash-card-h">
+                    <div class="l">Workers Online</div>
+                    <i data-lucide="server" style="width:13px;height:13px;color:var(--green)"></i>
+                </div>
+                <div id="stat-workers" class="dash-card-v">0</div>
+            </div>
+            <div class="dash-card span-3">
+                <div class="dash-card-h">
+                    <div class="l">Active Jobs</div>
+                    <i data-lucide="activity" style="width:13px;height:13px;color:var(--accent-violet)"></i>
+                </div>
+                <div id="stat-active" class="dash-card-v">0</div>
+            </div>
+            <div class="dash-card span-3">
+                <div class="dash-card-h">
+                    <div class="l">Completed</div>
+                    <i data-lucide="check-circle" style="width:13px;height:13px;color:var(--accent-violet)"></i>
+                </div>
+                <div id="stat-completed" class="dash-card-v">0</div>
+            </div>
+            <div class="dash-card span-3">
+                <div class="dash-card-h">
+                    <div class="l">Processed</div>
+                    <i data-lucide="hard-drive" style="width:13px;height:13px;color:var(--accent-amber)"></i>
+                </div>
+                <div id="stat-bytes" class="dash-card-v">0 B</div>
             </div>
         </div>
 
-        <div>
-            <h3 class="text-sm font-semibold text-[#8b949e] uppercase tracking-wide mb-3">Job History</h3>
-            <div id="job-history" class="space-y-2">
-                <div class="text-[#8b949e] text-sm">No job history</div>
+        <!-- Submit job -->
+        <div class="card" style="padding:14px;margin-bottom:18px">
+            <div style="display:flex;gap:10px;align-items:center">
+                <input id="job-sql" placeholder="Enter SQL query to execute on cluster…"
+                       style="flex:1;font-family:var(--font-mono)">
+                <button onclick="submitJob()" class="btn btn-primary"><i data-lucide="send"></i>Submit job</button>
             </div>
         </div>
-    </div>
-</main>
+
+        <!-- Active jobs -->
+        <div class="card" style="padding:14px;margin-bottom:18px">
+            <div style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;margin-bottom:10px">
+                <i data-lucide="layers" style="width:14px;height:14px"></i>Active jobs
+            </div>
+            <div id="active-jobs" style="display:flex;flex-direction:column;gap:8px">
+                <div style="color:var(--fg-3);font-size:13px">No active jobs</div>
+            </div>
+        </div>
+
+        <!-- Job history -->
+        <div class="card" style="padding:14px">
+            <div style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;margin-bottom:10px">
+                <i data-lucide="history" style="width:14px;height:14px"></i>Job history
+            </div>
+            <div id="job-history" style="display:flex;flex-direction:column;gap:8px">
+                <div style="color:var(--fg-3);font-size:13px">No job history</div>
+            </div>
+        </div>
+    </main>
+</div>
 {% endblock %}
 
 {% block scripts %}
