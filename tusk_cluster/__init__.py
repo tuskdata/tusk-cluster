@@ -20,7 +20,7 @@ Usage:
 from pathlib import Path
 from tusk.plugins.base import TuskPlugin
 
-__version__ = "0.2.3"
+__version__ = "0.2.4"
 
 
 class ClusterPlugin(TuskPlugin):

@@ -1,28 +1,15 @@
 /**
  * Tusk Cluster - Dashboard JavaScript
+ *
+ * Uses tusk-utils.js globals (tuskFormatBytes, tuskTimeAgo, tuskEscapeHtml)
+ * loaded by base.html. Local copies were dropped in v0.2.4.
  */
 
 let refreshInterval = null;
 
 // ─────────────────────────────────────────────────────────
-// Helpers
+// Helpers — formatBytes/timeAgo come from tusk-utils.js
 // ─────────────────────────────────────────────────────────
-
-function formatBytes(bytes) {
-    if (!bytes || bytes === 0) return '0 B';
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
-}
-
-function timeAgo(isoStr) {
-    if (!isoStr) return 'N/A';
-    const diff = Date.now() - new Date(isoStr).getTime();
-    const secs = Math.floor(diff / 1000);
-    if (secs < 60) return `${secs}s ago`;
-    if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
-    return `${Math.floor(secs / 3600)}h ago`;
-}
 
 function statusColor(status) {
     const colors = {
@@ -53,10 +40,10 @@ function statusBadge(status) {
 async function refreshCluster() {
     try {
         const [statusRes, workersRes, jobsRes, localRes] = await Promise.all([
-            fetch('/api/cluster/status'),
-            fetch('/api/cluster/workers'),
-            fetch('/api/cluster/jobs'),
-            fetch('/api/cluster/local/status'),
+            tuskFetch('/api/cluster/status'),
+            tuskFetch('/api/cluster/workers'),
+            tuskFetch('/api/cluster/jobs'),
+            tuskFetch('/api/cluster/local/status'),
         ]);
 
         const status = await statusRes.json();
@@ -274,7 +261,7 @@ async function submitPipelineJob(pipelineId) {
                 body.path = source.path;
                 body.osm_layer = source.osm_layer || 'all';
             }
-            const res = await fetch('/api/data/materialize', {
+            const res = await tuskFetch('/api/data/materialize', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
@@ -332,7 +319,7 @@ function updateStatus(status) {
     document.getElementById('stat-workers').textContent = status.workers_online || 0;
     document.getElementById('stat-active').textContent = status.active_jobs || 0;
     document.getElementById('stat-completed').textContent = status.completed_jobs || 0;
-    document.getElementById('stat-bytes').textContent = formatBytes(status.total_bytes_processed || 0);
+    document.getElementById('stat-bytes').textContent = tuskFormatBytes(status.total_bytes_processed || 0);
     document.getElementById('workers-count').textContent = `${status.workers_online || 0}/${status.workers_total || 0}`;
 
     // Toggle connect/disconnect buttons
@@ -365,9 +352,9 @@ function updateWorkers(workers) {
                 <div>CPU: <span class="text-[#e6edf3]">${(w.cpu_percent || 0).toFixed(0)}%</span></div>
                 <div>Mem: <span class="text-[#e6edf3]">${(w.memory_mb || 0).toFixed(0)} MB</span></div>
                 <div>Jobs: <span class="text-[#e6edf3]">${w.jobs_completed || 0}</span></div>
-                <div>Data: <span class="text-[#e6edf3]">${formatBytes(w.bytes_processed || 0)}</span></div>
+                <div>Data: <span class="text-[#e6edf3]">${tuskFormatBytes(w.bytes_processed || 0)}</span></div>
             </div>
-            <div class="mt-1 text-xs text-[#484f58]">${timeAgo(w.last_heartbeat)}</div>
+            <div class="mt-1 text-xs text-[#484f58]">${tuskTimeAgo(w.last_heartbeat)}</div>
         </div>
     `).join('');
 }
@@ -421,7 +408,7 @@ function updateJobs(jobs) {
                     <div class="font-mono text-sm text-[#e6edf3] truncate" title="${(j.sql || '').replace(/"/g, '&quot;')}">${j.sql || ''}</div>
                     ${j.error ? `<div class="text-xs text-red-400 mt-1">${j.error}</div>` : ''}
                 </div>
-                <div class="text-xs text-[#8b949e] whitespace-nowrap">${timeAgo(j.created_at || j.completed_at)}</div>
+                <div class="text-xs text-[#8b949e] whitespace-nowrap">${tuskTimeAgo(j.created_at || j.completed_at)}</div>
                 <div class="flex gap-1">
                     ${j.status === 'completed' ? `<button onclick="viewJobResult('${jobId}')" class="text-xs px-2 py-1 bg-[#21262d] hover:bg-[#30363d] rounded">View</button>` : ''}
                     ${j.status === 'failed' ? `<button onclick="retryJob('${jobId}')" class="text-xs px-2 py-1 bg-[#21262d] hover:bg-[#30363d] rounded">Retry</button>` : ''}
@@ -458,7 +445,7 @@ async function connectScheduler() {
     const port = document.getElementById('scheduler-port').value || '8814';
 
     try {
-        const res = await fetch('/api/cluster/connect', {
+        const res = await tuskFetch('/api/cluster/connect', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ host, port: parseInt(port) }),
@@ -479,7 +466,7 @@ async function connectScheduler() {
 
 async function disconnectScheduler() {
     try {
-        await fetch('/api/cluster/disconnect', { method: 'POST' });
+        await tuskFetch('/api/cluster/disconnect', { method: 'POST' });
         tuskToast('Disconnected from scheduler', 'info');
         stopAutoRefresh();
         refreshCluster();
@@ -500,7 +487,7 @@ async function startLocalCluster() {
     btn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Starting...';
 
     try {
-        const res = await fetch('/api/cluster/local/start', {
+        const res = await tuskFetch('/api/cluster/local/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ workers: parseInt(workers) }),
@@ -515,7 +502,7 @@ async function startLocalCluster() {
                 for (let i = 0; i < 5; i++) {
                     await new Promise(r => setTimeout(r, 2000));
                     try {
-                        const cRes = await fetch('/api/cluster/connect', {
+                        const cRes = await tuskFetch('/api/cluster/connect', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ host: 'localhost', port: 8814 }),
@@ -551,7 +538,7 @@ async function stopLocalCluster() {
     btn.disabled = true;
 
     try {
-        const res = await fetch('/api/cluster/local/stop', { method: 'POST' });
+        const res = await tuskFetch('/api/cluster/local/stop', { method: 'POST' });
         const data = await res.json();
 
         if (data.stopped) {
@@ -581,7 +568,7 @@ async function submitJob() {
     }
 
     try {
-        const res = await fetch('/api/cluster/jobs', {
+        const res = await tuskFetch('/api/cluster/jobs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ sql }),
@@ -606,7 +593,7 @@ async function submitJob() {
 
 async function cancelJob(jobId) {
     try {
-        const res = await fetch(`/api/cluster/jobs/${jobId}/cancel`, { method: 'POST' });
+        const res = await tuskFetch(`/api/cluster/jobs/${jobId}/cancel`, { method: 'POST' });
         const data = await res.json();
         if (data.cancelled) {
             tuskToast('Job cancelled', 'info');
@@ -621,7 +608,7 @@ async function cancelJob(jobId) {
 
 async function retryJob(jobId) {
     try {
-        const res = await fetch(`/api/cluster/jobs/${jobId}/retry`, { method: 'POST' });
+        const res = await tuskFetch(`/api/cluster/jobs/${jobId}/retry`, { method: 'POST' });
         const data = await res.json();
         if (data.job_id) {
             tuskToast(`Job retried: ${data.job_id.substring(0, 12)}`, 'success');
@@ -636,7 +623,7 @@ async function retryJob(jobId) {
 
 async function viewJobResult(jobId) {
     try {
-        const res = await fetch(`/api/cluster/jobs/${jobId}/result`);
+        const res = await tuskFetch(`/api/cluster/jobs/${jobId}/result`);
         const data = await res.json();
 
         if (data.error) {
@@ -698,7 +685,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Start auto-refresh if connected
     try {
-        const res = await fetch('/api/cluster/status');
+        const res = await tuskFetch('/api/cluster/status');
         const status = await res.json();
         if (status.scheduler_online) {
             startAutoRefresh();

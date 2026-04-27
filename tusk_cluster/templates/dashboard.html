@@ -2,6 +2,10 @@
 
 {% block title %}Tusk Cluster · Distributed Query Execution{% endblock %}
 
+{% block head %}
+<link rel="stylesheet" href="/static/plugins/cluster/cluster.css">
+{% endblock %}
+
 {% block header_actions %}
 <button onclick="refreshCluster()" class="btn btn-sm">
     <i data-lucide="refresh-cw"></i>Refresh
@@ -24,11 +28,11 @@
                         <input id="scheduler-port" type="number" value="8814" placeholder="Port" style="width:84px">
                     </div>
                     <button id="btn-connect" onclick="connectScheduler()"
-                            class="btn btn-sm" style="background:var(--green);color:#fff;border-color:var(--green);justify-content:center">
+                            class="btn btn-sm btn-success">
                         <i data-lucide="plug"></i>Connect
                     </button>
-                    <button id="btn-disconnect" onclick="disconnectScheduler()" class="btn btn-sm hidden"
-                            style="background:var(--red);color:#fff;border-color:var(--red);justify-content:center">
+                    <button id="btn-disconnect" onclick="disconnectScheduler()"
+                            class="btn btn-sm hidden btn-danger">
                         <i data-lucide="unplug"></i>Disconnect
                     </button>
                     <div id="scheduler-info" style="font-size:12px;color:var(--fg-3)">Not connected</div>
@@ -59,11 +63,11 @@
                         <option value="4">4 workers</option>
                     </select>
                     <button id="btn-start-local" onclick="startLocalCluster()"
-                            class="btn btn-sm" style="background:var(--green);color:#fff;border-color:var(--green);justify-content:center">
+                            class="btn btn-sm btn-success">
                         <i data-lucide="play"></i>Start local cluster
                     </button>
-                    <button id="btn-stop-local" onclick="stopLocalCluster()" class="btn btn-sm hidden"
-                            style="background:var(--red);color:#fff;border-color:var(--red);justify-content:center">
+                    <button id="btn-stop-local" onclick="stopLocalCluster()"
+                            class="btn btn-sm hidden btn-danger">
                         <i data-lucide="square"></i>Stop
                     </button>
                 </div>

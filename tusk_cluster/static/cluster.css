@@ -1,0 +1,20 @@
+/* tusk-cluster — local utility classes
+ *
+ * .btn-success / .btn-danger replace the inline
+ * style="background:var(--green);..." patterns previously embedded
+ * across dashboard.html.
+ */
+
+.btn-success {
+    background: var(--green);
+    color: #fff;
+    border-color: var(--green);
+    justify-content: center;
+}
+
+.btn-danger {
+    background: var(--red);
+    color: #fff;
+    border-color: var(--red);
+    justify-content: center;
+}
